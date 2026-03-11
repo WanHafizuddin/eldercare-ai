@@ -44,3 +44,17 @@ def get_reminders():
     Retrieve all reminders.
     """
     return reminders_db
+
+@router.delete("/{reminder_id}")
+def delete_reminder(reminder_id: str):
+    """
+    Delete a reminder by ID.
+    """
+    global reminders_db
+    for idx, reminder in enumerate(reminders_db):
+        if reminder["id"] == reminder_id:
+            del reminders_db[idx]
+            from app.services.scheduler_service import cancel_medication_reminder
+            cancel_medication_reminder(reminder_id)
+            return {"detail": "Reminder deleted successfully."}
+    raise HTTPException(status_code=404, detail="Reminder not found.")

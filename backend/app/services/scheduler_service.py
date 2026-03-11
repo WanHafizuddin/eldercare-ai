@@ -34,3 +34,12 @@ def schedule_medication_reminder(reminder_id: str, email: str, medication: str, 
         id=reminder_id, 
         replace_existing=True
     )
+
+def cancel_medication_reminder(reminder_id: str):
+    """
+    Cancels a scheduled daily reminder.
+    """
+    if scheduler.get_job(reminder_id):
+        scheduler.remove_job(reminder_id)
+        return True
+    return False

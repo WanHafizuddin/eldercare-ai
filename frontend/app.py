@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
-import json
+import pandas as pd
+import pickle
 import os
 from datetime import datetime
 
@@ -28,9 +29,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("❤️ ElderCare AI")
-st.markdown("Your AI-powered personal health monitoring assistant. Assess symptoms, log daily vitals, and set medication reminders.")
+st.markdown("Your AI-powered personal health monitoring assistant. Assess symptoms, log daily vitals, set medication reminders, and predict sleep disorders.")
 
-tab1, tab2, tab3 = st.tabs(["🩺 Symptom Checker", "📈 Vitals Logger", "💊 Medication Reminders"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🩺 Symptom Checker",
+    "📈 Vitals Logger",
+    "💊 Medication Reminders",
+    "😴 Sleep Disorder Predictor"
+])
 
 # --- Tab 1: Symptom Checker ---
 with tab1:
@@ -64,14 +70,13 @@ with tab1:
                             data = response.json()
                             risk_level = data.get("risk_level", "Unknown")
                             
-                            # Display conditional alert box based on risk
                             if risk_level.lower() == "high":
-                                st.error(f"### 🚨 Risk Level: HIGH")
+                                st.error("### 🚨 Risk Level: HIGH")
                                 st.warning("An emergency alert has been automatically sent to your designated family member.")
                             elif risk_level.lower() == "medium":
-                                st.warning(f"### ⚠️ Risk Level: MEDIUM")
+                                st.warning("### ⚠️ Risk Level: MEDIUM")
                             else:
-                                st.success(f"### ✅ Risk Level: LOW")
+                                st.success("### ✅ Risk Level: LOW")
                                 
                             st.markdown("#### Explanation")
                             st.write(data.get("explanation", "No explanation provided."))
@@ -151,7 +156,7 @@ with tab3:
     with st.form("reminder_form"):
         rem_email = st.text_input("Your Email Address", value="patient@example.com")
         med_name = st.text_input("Medication Name", placeholder="E.g., Lisinopril 10mg")
-        time_to_take = st.time_input("Daily Reminder Time")
+        time_to_take = st.text_input("Daily Reminder Time (24-hour HH:MM)", value="08:00")
         
         scheduled = st.form_submit_button("Schedule Reminder")
         
@@ -159,7 +164,7 @@ with tab3:
             if not med_name:
                 st.error("Please enter a medication name.")
             else:
-                time_str = time_to_take.strftime("%H:%M")
+                time_str = time_to_take.strip()
                 with st.spinner("Scheduling..."):
                     try:
                         response = requests.post(f"{API_BASE_URL}/api/reminders/", json={
@@ -175,17 +180,123 @@ with tab3:
                         st.error(f"Backend error: {e}")
                         
     st.markdown("---")
-    if st.button("View Scheduled Reminders"):
-        try:
-            res = requests.get(f"{API_BASE_URL}/api/reminders/")
-            if res.status_code == 200:
-                rems = res.json()
-                if rems:
-                    for r in rems:
-                        st.write(f"- **{r['time_to_take']}**: {r['medication_name']} sent to {r['user_email']}")
-                else:
-                    st.info("No active reminders.")
+    st.subheader("Your Scheduled Reminders")
+    try:
+        res = requests.get(f"{API_BASE_URL}/api/reminders/")
+        if res.status_code == 200:
+            rems = res.json()
+            if rems:
+                for r in rems:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"- **{r.get('time_to_take', '')}**: {r.get('medication_name', '')} sent to {r.get('user_email', 'Unknown')}")
+                    with col2:
+                        if st.button("Cancel", key=f"cancel_{r.get('id', '')}"):
+                            try:
+                                delete_res = requests.delete(f"{API_BASE_URL}/api/reminders/{r.get('id', '')}")
+                                if delete_res.status_code == 200:
+                                    st.success("Reminder cancelled!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to cancel reminder.")
+                            except Exception as e:
+                                st.error(f"Error cancelling reminder: {e}")
             else:
-                st.error("Failed to load reminders.")
-        except Exception as e:
-            st.error("Error loading reminders.")
+                st.info("No active reminders.")
+        else:
+            st.error("Failed to load reminders.")
+    except Exception as e:
+        st.error("Error loading reminders.")
+
+# --- Tab 4: Sleep Disorder Predictor ---
+with tab4:
+    st.header("Sleep Disorder Predictor")
+    st.info("Fill in your health and lifestyle details to predict your sleep disorder risk.")
+
+    # --- Load Model ---
+    @st.cache_resource
+    def load_sleep_model():
+        with open('sleep_disorder_model.pkl', 'rb') as f:
+            return pickle.load(f)
+
+    try:
+        sleep_model = load_sleep_model()
+        model_loaded = True
+    except FileNotFoundError:
+        st.error("⚠️ Model file `sleep_disorder_model.pkl` not found. Please ensure it is in the same directory as this app.")
+        model_loaded = False
+
+    if model_loaded:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            gender = st.selectbox("Gender", ["Male", "Female"])
+            age_sleep = st.slider("Age", 18, 80, 30, key="sleep_age")
+            sleep_duration = st.slider("Sleep Duration (hours)", 4.0, 10.0, 7.0, step=0.1)
+            quality_of_sleep = st.slider("Quality of Sleep (1-10)", 1, 10, 7)
+            physical_activity = st.slider("Physical Activity Level (min/day)", 0, 120, 45)
+            stress_level = st.slider("Stress Level (1-10)", 1, 10, 5)
+
+        with col2:
+            bmi_category = st.selectbox("BMI Category", ["Underweight", "Normal", "Overweight", "Obese"])
+            heart_rate_sleep = st.number_input("Heart Rate (bpm)", 40, 120, 72, key="sleep_hr")
+            daily_steps = st.number_input("Daily Steps", 0, 20000, 7000, step=500)
+            bp_systolic = st.number_input("Blood Pressure Systolic", 80, 200, 120, key="sleep_sys")
+            bp_diastolic = st.number_input("Blood Pressure Diastolic", 50, 130, 80, key="sleep_dia")
+
+        st.divider()
+
+        # --- Encode Inputs ---
+        gender_encoded = 1 if gender == "Male" else 0
+        bmi_map = {"Underweight": 0, "Normal": 1, "Overweight": 2, "Obese": 3}
+        bmi_encoded = bmi_map[bmi_category]
+
+        # --- Predict ---
+        if st.button("🔍 Predict Sleep Disorder", use_container_width=True, type="primary"):
+            input_data = pd.DataFrame([{
+                'Gender': gender_encoded,
+                'Age': age_sleep,
+                'Sleep Duration': sleep_duration,
+                'Quality of Sleep': quality_of_sleep,
+                'Physical Activity Level': physical_activity,
+                'Stress Level': stress_level,
+                'BMI Category': bmi_encoded,
+                'Heart Rate': heart_rate_sleep,
+                'Daily Steps': daily_steps,
+                'BP Systolic': bp_systolic,
+                'BP Diastolic': bp_diastolic
+            }])
+
+            prediction = sleep_model.predict(input_data)[0]
+
+            st.divider()
+
+            if prediction == "None":
+                st.success("✅ No Sleep Disorder Detected")
+                st.markdown("Your sleep health looks good! Keep maintaining a healthy lifestyle.")
+
+            elif prediction == "Insomnia":
+                st.warning("⚠️ Insomnia Detected")
+                st.markdown("""
+                **Insomnia** means difficulty falling or staying asleep.  
+                **Suggestions:**
+                - Reduce stress and screen time before bed
+                - Maintain a consistent sleep schedule
+                - Avoid caffeine in the evening
+                """)
+
+            elif prediction == "Sleep Apnea":
+                st.error("🚨 Sleep Apnea Detected")
+                st.markdown("""
+                **Sleep Apnea** means breathing repeatedly stops during sleep.  
+                **Suggestions:**
+                - Consult a doctor for proper diagnosis
+                - Maintain a healthy BMI
+                - Avoid sleeping on your back
+                """)
+
+            st.caption("⚠️ This is an ML prediction, not a medical diagnosis. Please consult a doctor.")
+
+# --- Footer ---
+st.divider()
+st.caption("Built with Streamlit & scikit-learn | ElderCare AI © 2025")
